@@ -1,0 +1,32 @@
+{
+  "name": "@acastellon/auth",
+  "version": "1.0.0",
+  "description": "Authorization Filtering for NodeJS Express Application (uses:NTLM + LDAP + JWT)",
+  "main": "auth.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/antonio-castellon/auth.git"
+  },
+  "keywords": [
+    "express",
+    "microservices",
+    "authorization",
+    "ldap",
+    "ntlm",
+    "jwt",
+    "auth"
+  ],
+  "dependencies": {
+    "express-ntlm" :"^2.3.0",
+    "jsonwebtoken": "^8.3.0"
+  },
+  "author": "Antonio Castellon",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/antonio-castellon/auth/issues"
+  },
+  "homepage": "https://github.com/antonio-castellon/auth#readme"
+}
