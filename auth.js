@@ -5,7 +5,7 @@
 //
 // to be used in front of all u-services that are used directly from the browser client
 //
-const os 		= require("os");
+const os 	= require("os");
 const ntlm  = require('express-ntlm');
 const jwt   = require('jsonwebtoken');  // https://www.npmjs.com/package/jsonwebtoken
 
@@ -20,6 +20,7 @@ module.exports = function(setup) {
   // CONFIGURATION
   //
   const ldap = require('@acastellon/ldap')(setup);
+  //const ldap = require('../../modules/ldap/ldap.js')(setup);
 
   //
   // ASSIGNATIONS
