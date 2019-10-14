@@ -45,7 +45,8 @@ module.exports = function(setup) {
 
 
   function setContent(into, from){
-    from.forEach(function(value){
+
+    Object.keys(from).forEach(function(value){
       if (value.startsWith('is')){
         into[value] = from[value];
       }
@@ -54,7 +55,8 @@ module.exports = function(setup) {
   }
 
   function setHeaders(res, v){
-    v.forEach(function(value) {
+
+    Object.keys(v).forEach(function(value) {
       if (value.startsWith('is')){
         res.setHeader(value, v[value]);
       }
