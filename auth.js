@@ -8,10 +8,11 @@
 const os 	= require("os");
 const ntlm  = require('express-ntlm');
 const jwt   = require('jsonwebtoken');  // https://www.npmjs.com/package/jsonwebtoken
-
+const secureRandom = require("secure-random");
 
 module.exports = function(setup) {
 
+  const PASS_TOKEN = setup.passToken || secureRandom(256, { type: "Buffer" });
   const model = {};
 
   let ldapCache = new Array();
@@ -124,7 +125,7 @@ module.exports = function(setup) {
          // console.log(_content);
 
           // create a token
-          var token = jwt.sign(_content, setup.passToken, {
+          var token = jwt.sign(_content, PASS_TOKEN, {
             expiresIn: setup.EXPIRES
           });
 
@@ -194,8 +195,8 @@ module.exports = function(setup) {
               setHeaders(res,v);
               res.setHeader("auth-user", userName);
 
-              var _token = jwt.sign(_content, setup.passToken, {
-                expiresIn: setup.EXPIRES // expires in 24 hours
+              var _token = jwt.sign(_content, PASS_TOKEN , {
+                expiresIn: setup.EXPIRES
               });
 
               if (!token || !isEqualToken(token, _token, userName)) return res.status(403).send({
@@ -206,10 +207,16 @@ module.exports = function(setup) {
                 user : userName
               });
 
-              jwt.verify(token, setup.passToken, function (err, decoded) {
-                if (err) return res.status(500).send({auth: false, message: 'Failed to authenticate token. Maybe token is expired.'});
+              jwt.verify(token, PASS_TOKEN , function (err, decoded) {
+                if (err)
+                {
+                  return res.status(500).send({auth: false, message: 'Failed to authenticate token. Maybe token is expired.'});
+                }
+                else{
+                  next();
+                }
               });
-              next();
+
             })
       }
    });
