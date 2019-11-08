@@ -1,3 +1,4 @@
+"use strict";
 // -- Authentification Control System
 //
 // Castellon.CH - 2019 (c)
@@ -77,7 +78,7 @@ module.exports = function(setup) {
         var args = Array.prototype.slice.apply(arguments);
         console.log.apply(null, args);
       },
-      domain: 'PMI',
+      domain: ldap.DOMAIN,
       domaincontroller: ldap.LDAP_URL,
       forbidden: function (req, res) {
         res
