@@ -90,7 +90,7 @@ module.exports = function(setup) {
 
     app.all('*', function (request, res, next) {
 
-      var userName = request.ntlm.UserName;
+      let userName = request.ntlm.UserName;
 
       if(ldapCache[userName] != null){
 
@@ -127,7 +127,7 @@ module.exports = function(setup) {
          // console.log(_content);
 
           // create a token
-          var token = jwt.sign(_content, PASS_TOKEN, {
+          let token = jwt.sign(_content, PASS_TOKEN, {
             expiresIn: setup.EXPIRES
           });
 
@@ -179,8 +179,8 @@ module.exports = function(setup) {
 
     app.all('*', function (req, res, next) {
 
-      var token = req.headers['x-access-token'];
-      var userName = req.headers['auth-user'];
+      let token = req.headers['x-access-token'];
+      let userName = req.headers['auth-user'];
 
       if (userName == 'service-brother'
         && req.get('host').startsWith(getHostName()))
@@ -227,7 +227,7 @@ module.exports = function(setup) {
   function setRoles (app) {
     app.all('*', function (req, res, next) {
 
-      var userName = req.headers['auth-user'];
+      let userName = req.headers['auth-user'];
 
       if (typeof userName == 'undefined' || userName == '') {
         res.status(401).send({message: 'Authentication required'});
@@ -243,8 +243,18 @@ module.exports = function(setup) {
   }
 
 
-  function getRoles(request, res) {
-    var userName = request.headers['auth-user'];
+  function getRoles(req, res)
+  {
+    let userName = '';
+
+    if (typeof req.ntlm != 'undefined')
+    {
+      userName = req.ntlm.UserName || req.headers['auth-user'] ;
+    }
+    else {
+      userName = req.headers['auth-user'] ;
+    }
+
     if (typeof userName == 'undefined' || userName == '') {
       res.status(401).send({message: 'Authentication required'});
     } else {
