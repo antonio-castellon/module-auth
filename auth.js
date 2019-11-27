@@ -31,6 +31,7 @@ module.exports = function(setup) {
   model.setNTLMAuth = setNTLMAuth;
   model.validateToken = validateToken;
   model.setRoles = setRoles;
+  model.getRoles = getRoles;
   model.removeCache4 = removeCache4;
 
   //
@@ -239,6 +240,18 @@ module.exports = function(setup) {
       }
 
     });
+  }
+
+
+  function getRoles(request, res) {
+    var userName = request.headers['auth-user'];
+    if (typeof userName == 'undefined' || userName == '') {
+      res.status(401).send({message: 'Authentication required'});
+    } else {
+      ldap.getRoles(userName).then(function (v) {
+        res.json(v);
+      });
+    }
   }
 
   return model;
