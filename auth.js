@@ -112,7 +112,7 @@ module.exports = function(setup) {
       //
 
       if (request.ntlm.Authenticated
-          && !res._headers['is-authenticated'])
+          && !res.hasHeader('is-authenticated'))
       {
 
         res.setHeader("is-authenticated", true);
