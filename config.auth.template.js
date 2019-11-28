@@ -4,6 +4,7 @@ module.exports = {
     ,baseDN: '<baseDN>'
     ,username: '<user-ldap>'
     ,password: '<password>'
+    ,NTLM_DEBUG: false /* to activate log mssages from NTLM interface */
 
     ,hostNames: {
         'DEV' : 'dev.example.com'

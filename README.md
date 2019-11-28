@@ -10,6 +10,7 @@ usage
         ,baseDN: '<baseDN>'
         ,username: '<user-ldap>'
         ,password: '<password>'
+        ,NTLM_DEBUG: false // to activate log messages 
     
         ,hostNames: {
             'DEV' : 'dev.example.com'

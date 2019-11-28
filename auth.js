@@ -76,8 +76,10 @@ module.exports = function(setup) {
 
     app.use(ntlm({
       debug: function () {
-        var args = Array.prototype.slice.apply(arguments);
-        console.log.apply(null, args);
+        if (setup.NTLM_DEBUG) {
+          var args = Array.prototype.slice.apply( arguments );
+          console.log.apply( null, args );
+        }
       },
       domain: ldap.DOMAIN,
       domaincontroller: ldap.LDAP_URL,
