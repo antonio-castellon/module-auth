@@ -6,11 +6,8 @@ module.exports = {
     ,password: '<password>'
     ,NTLM_DEBUG: false /* to activate log mssages from NTLM interface */
 
-    ,hostNames: {
-        'DEV' : 'dev.example.com'
-        ,'QA' : 'qa.example.com'
-        ,'PROD' : 'www.example.com'
-    }
+    ,CNAME: 'dev.example.com'
+
     ,passToken: '<passphrase-optional>'  /* if doesn't exists the module generates ones automatically */
     ,EXPIRES: 86400                     /* expires in 24 hours */
 

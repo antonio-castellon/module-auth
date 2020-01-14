@@ -39,7 +39,7 @@ module.exports = function(setup) {
   //
 
   function getHostName(){
-    return setup.hostNames[process.env.SERVER_ENVIRONMENT] || os.hostname();
+    return process.env.CNAME || os.hostname();
   }
 
   function removeCache4(userName){

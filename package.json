@@ -1,6 +1,6 @@
 {
   "name": "@acastellon/auth",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Authorization Filtering for NodeJS Express Application (uses:NTLM + LDAP + JWT)",
   "main": "auth.js",
   "scripts": {
