@@ -1,2 +1,5 @@
 # .gitignore
 /config.auth.js
+node_modules/*
+module-auth.iml
+package-lock.json
