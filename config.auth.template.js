@@ -5,7 +5,9 @@ module.exports = {
     ,username: '<user-ldap>'
     ,password: '<password>'
     ,NTLM_DEBUG: false /* to activate log mssages from NTLM interface */
-
+    ,tlsOptions: {
+        'rejectUnauthorized': false
+    }
     ,CNAME: 'dev.example.com'
 
     ,passToken: '<passphrase-optional>'  /* if doesn't exists the module generates ones automatically */
