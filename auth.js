@@ -83,7 +83,7 @@ module.exports = function(setup) {
       },
       domain: ldap.DOMAIN,
       domaincontroller: ldap.LDAP_URL,
-      tlsOptions: ldap.tlsOptions,
+      tlsOptions: setup.tlsOptions,
       forbidden: function (req, res) {
         res
           .status(401)
