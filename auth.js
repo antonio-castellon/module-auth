@@ -85,9 +85,15 @@ module.exports = function(setup) {
       domaincontroller: ldap.LDAP_URL,
       tlsOptions: setup.tlsOptions,
       forbidden: function (req, res) {
-        res
-          .status(401)
-          .location(req.url).end();
+        if (NTLM_FORBIDDEN){
+          res
+              .status(401)
+              .location(req.url).end();
+        }
+        else{
+          res.sendStatus(200);
+        }
+
       }
     }));
 
