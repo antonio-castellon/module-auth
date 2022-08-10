@@ -4,9 +4,11 @@ module.exports = {
     ,baseDN: '<baseDN>'
     ,username: '<user-ldap>'
     ,password: '<password>'
-    ,NTLM_DEBUG: false /* to activate log mssages from NTLM interface */
+    ,NTLM_DEBUG: false /* to activate log messages from NTLM interface */
+    ,NTLM_OPTIONS: false /* enable the configuration or use the default conf */
     ,tlsOptions: {
-        'rejectUnauthorized': false
+        ca: '<path_and_file_ldap_server_certificate>'
+        ,'rejectUnauthorized': false
     }
     ,CNAME: 'dev.example.com'
 

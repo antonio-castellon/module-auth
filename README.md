@@ -16,7 +16,8 @@ usage
                 rejectUnauthorized: false,
         }
         ,NTLM_DEBUG: false // to activate log messages 
-        ,NTLM_FORBIDDEN: true // to have a normal behaivour using LDAPS, false always response code 200
+        ,NTLM_OPTIONS: true // to activate configuration from tlsOptions or use the default if it's false
+        
         ,CNAME: 'dev.example.com'
         
         ,passToken: '<passphrase-optional>'  /* if doesn't exists the module generates ones automatically */

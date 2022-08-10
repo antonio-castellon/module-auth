@@ -74,28 +74,27 @@ module.exports = function(setup) {
    */
   function setNTLMAuth (app) {
 
-    app.use(ntlm({
-      debug: function () {
-        if (setup.NTLM_DEBUG) {
-          var args = Array.prototype.slice.apply( arguments );
-          console.log.apply( null, args );
-        }
-      },
-      domain: ldap.DOMAIN,
-      domaincontroller: ldap.LDAP_URL,
-      tlsOptions: setup.tlsOptions,
-      forbidden: function (req, res) {
-        if (NTLM_FORBIDDEN){
+    let options = {}
+    if (setup.NTLM_OPTIONS){
+      options = {
+        debug: function () {
+          if (setup.NTLM_DEBUG) {
+            var args = Array.prototype.slice.apply( arguments );
+            console.log.apply( null, args );
+          }
+        },
+        domain: ldap.DOMAIN,
+        domaincontroller: ldap.LDAP_URL,
+        tlsOptions: setup.tlsOptions,
+        forbidden: function (req, res) {
           res
               .status(401)
               .location(req.url).end();
         }
-        else{
-          res.sendStatus(200);
-        }
-
       }
-    }));
+    }
+
+    app.use(ntlm(options));
 
     app.all('*', function (request, res, next) {
 
