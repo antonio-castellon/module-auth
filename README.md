@@ -17,7 +17,8 @@ usage
         }
         ,NTLM_DEBUG: false // to activate log messages 
         ,NTLM_OPTIONS: true // to activate configuration from tlsOptions or use the default if it's false
-        
+        ,NTLM_LDAP: false // to enable/disable request to ldap module automatically for each NTLM request 
+          
         ,CNAME: 'dev.example.com'
         
         ,passToken: '<passphrase-optional>'  /* if doesn't exists the module generates ones automatically */

@@ -128,12 +128,29 @@ module.exports = function(setup) {
           id: userName
         }
 
-        ldap.getRoles(userName).then(function (v) {
+        if (setup.NTLM_LDAP){
 
-          setContent(_content, v);
+          ldap.getRoles(userName).then(function (v) {
 
-         // console.log(_content);
+            setContent(_content, v);
 
+            // console.log(_content);
+
+            // create a token
+            let token = jwt.sign(_content, PASS_TOKEN, {
+              expiresIn: setup.EXPIRES
+            });
+
+            res.setHeader("x-access-token", token);
+
+            // console.log(' ..... INCLUDING CACHE for ' + userName);
+
+            ldapCache[userName] =  token;
+
+            next();
+          })
+        }
+        else{
           // create a token
           let token = jwt.sign(_content, PASS_TOKEN, {
             expiresIn: setup.EXPIRES
@@ -146,7 +163,8 @@ module.exports = function(setup) {
           ldapCache[userName] =  token;
 
           next();
-        })
+        }
+
 
 
       } else {

@@ -6,6 +6,7 @@ module.exports = {
     ,password: '<password>'
     ,NTLM_DEBUG: false /* to activate log messages from NTLM interface */
     ,NTLM_OPTIONS: false /* enable the configuration or use the default conf */
+    ,NTLM_LDAP: false /* to enable request to ldap module automatically for each NTLM request */
     ,tlsOptions: {
         ca: '<path_and_file_ldap_server_certificate>'
         ,'rejectUnauthorized': false
@@ -14,6 +15,7 @@ module.exports = {
 
     ,passToken: '<passphrase-optional>'  /* if doesn't exists the module generates ones automatically */
     ,EXPIRES: 86400                     /* expires in 24 hours */
+
 
     ,MOCKUP_USERS : ['acastellon','rlopez']
     ,MOCKUP_ROLES : ['User','CManager']
