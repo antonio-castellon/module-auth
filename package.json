@@ -1,6 +1,6 @@
 {
   "name": "@acastellon/auth",
-  "version": "1.0.18",
+  "version": "1.0.20",
   "description": "Authorization Filtering for NodeJS Express Application (uses:NTLM + LDAP + JWT)",
   "main": "auth.js",
   "scripts": {
@@ -23,7 +23,7 @@
     "@acastellon/ldap": "^1.0.7",
     "async": "^3.2.3",
     "express-ntlm": "^2.6.2",
-    "jsonwebtoken": "^8.5.1",
+    "jsonwebtoken": "^9.0.0",
     "secure-random": "^1.1.2"
   },
   "author": "Antonio Castellon",

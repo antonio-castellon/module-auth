@@ -96,7 +96,7 @@ module.exports = function(setup) {
 
     app.use(ntlm(options));
 
-    app.all('*', function (request, res, next) {
+    app.all(setup.NTLM_PATH || '*', function (request, res, next) {
 
       let userName = request.ntlm.UserName;
 

@@ -7,6 +7,7 @@ module.exports = {
     ,NTLM_DEBUG: false /* to activate log messages from NTLM interface */
     ,NTLM_OPTIONS: false /* enable the configuration or use the default conf */
     ,NTLM_LDAP: false /* to enable request to ldap module automatically for each NTLM request */
+    ,NTLM_PATH: '*' /* path to be controlled by NTLM, by default is '*'  */
     ,tlsOptions: {
         ca: '<path_and_file_ldap_server_certificate>'
         ,'rejectUnauthorized': false
