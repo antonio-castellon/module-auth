@@ -1,6 +1,11 @@
 # @acastellon/auth
 
-Authentication Control System for microservices that uses a combination of NTLM + LDAP + JWT.
+**Modern & Legacy Authentication / Authorization middleware for Express microservices.**
+
+Supports:
+- **Legacy**: NTLM + LDAP + internal JWT (fully backward compatible)
+- **Modern cloud providers**: AWS Cognito, Microsoft Azure AD / Entra ID, generic OIDC / OAuth2 (Auth0, Okta, Keycloak, Google, etc.)
+- **Hybrid** modes (external token + LDAP role enrichment)
 
 ## Install
 
@@ -8,120 +13,97 @@ Authentication Control System for microservices that uses a combination of NTLM 
 npm install @acastellon/auth
 ```
 
-## Config (see config.auth.template.js for full)
+## Quick Start
+
+### Legacy NTLM (on-prem)
 
 ```js
-module.exports = {
-  // ... NTLM/JWT/LDAP settings, ROLES map, MOCKUP_*, passToken, EXPIRES, etc.
-};
+const auth = require('@acastellon/auth')(require('./config.auth.js'));
+
+auth.setNTLMAuth(app);           // protects routes with NTLM + optional LDAP roles
+// or
+auth.validateToken(app);         // validates internal JWT + LDAP roles
 ```
 
-const auth = require('@acastellon/auth')(def_auth);
+### Modern (AWS Cognito example)
 
-## Usage in Express app
+```js
+const auth = require('@acastellon/auth')({
+  AUTH_TYPE: 'EXTERNAL_JWT',
+  COGNITO: {
+    region: 'eu-west-1',
+    userPoolId: 'eu-west-1_xxxxxxxx',
+    clientId: 'your-app-client-id',     // for audience validation
+    rolesClaim: 'cognito:groups',
+    roleMapper: { 'Admins': 'Admin' }
+  },
+  ROLES: { Admin: 'Admins', User: 'Users' },
+  EXPIRES: 3600
+});
 
-In case of NTLM (usually for Web FrontEnd):
+// Use the dedicated external validator (recommended)
+auth.validateExternalToken(app);
 
-    auth.setNTLMAuth(app);
+// or the smart one that auto-detects
+// auth.validateToken(app);
+```
 
-For JWT (common for WS):
+## Configuration
 
-    auth.validateToken(app);
+See the heavily commented `config.auth.template.js` for all options.
 
-Other: auth.setRoles(app); auth.getRoles(req, res); auth.removeCache4(user);
+Key new settings for v2:
+
+```js
+{
+  AUTH_TYPE: 'NTLM' | 'EXTERNAL_JWT',
+
+  // One of the following provider blocks:
+  COGNITO: { region, userPoolId, clientId?, rolesClaim?, roleMapper? },
+  AZURE:   { tenantId, clientId, rolesClaim?, roleMapper? },
+  OIDC:    { issuer, clientId?, rolesClaim?, roleMapper?, jwksUri? },
+
+  // Optional hybrid / advanced
+  useLdapForRoles: false,     // still call the LDAP module for extra roles
+  rolesClaim: 'roles',        // default claim name containing roles/groups
+  roleMapper: { ... },        // map provider role names → your ROLES keys
+
+  // Legacy NTLM/LDAP fields remain supported
+}
+```
 
 ## API
 
-### setNTLMAuth(app)
+### `setNTLMAuth(app)`
+Legacy NTLM protection (express-ntlm) with optional LDAP role lookup and internal JWT re-issuing.
 
-Installs express-ntlm + post-auth hook that does LDAP role lookup (if enabled) and issues JWT. Sets headers.
+### `validateToken(app)`
+Smart middleware:
+- If external provider is configured → uses JWKS verification for Cognito/Azure/OIDC.
+- Otherwise → falls back to legacy internal JWT + LDAP behavior.
 
-**Example (with minimal setup):**
+### `validateExternalToken(app)` (new)
+Dedicated, clean middleware for pure external JWT providers. Recommended when you no longer use NTLM.
 
-```js
-const express = require('express');
-const authMod = require('@acastellon/auth');
+### `setRoles(app)` / `getRoles(req, res)` / `removeCache4(userName)`
+Legacy role attachment and cache helpers (still work).
 
-const AUTH_CONFIG = require('./config.auth.js'); // your config
-const auth = authMod(AUTH_CONFIG);
+## How External JWT Validation Works
 
-const app = express();
+1. Client obtains a JWT from Cognito / Azure / your OIDC provider.
+2. Client sends it in `Authorization: Bearer <token>` or `x-access-token`.
+3. Middleware fetches the provider's JWKS, verifies signature + issuer + audience.
+4. Extracts user id and roles from configured claims.
+5. (Optional) Enriches roles via the LDAP module.
+6. Sets the usual headers (`auth-user`, `isXXX`, `is-authenticated`) so your existing code continues to work.
+7. Optionally re-issues a short-lived internal JWT.
 
-auth.setNTLMAuth(app);
+## Migrating from v1
 
-app.listen(3000);
-```
-
-### validateToken(app)
-
-Middleware that validates x-access-token + re-issues from LDAP roles.
-
-**Example (with minimal setup):**
-
-```js
-const express = require('express');
-const authMod = require('@acastellon/auth');
-
-const AUTH_CONFIG = require('./config.auth.js');
-const auth = authMod(AUTH_CONFIG);
-
-const app = express();
-
-auth.validateToken(app);
-
-app.get('/protected', (req, res) => res.json({ user: req.headers['auth-user'] }));
-
-app.listen(3000);
-```
-
-### setRoles(app)
-
-Middleware that only attaches roles from LDAP (no token validation).
-
-**Example (with minimal setup):**
-
-```js
-const express = require('express');
-const authMod = require('@acastellon/auth');
-
-const AUTH_CONFIG = require('./config.auth.js');
-const auth = authMod(AUTH_CONFIG);
-
-const app = express();
-
-auth.setRoles(app);
-
-app.listen(3000);
-```
-
-### getRoles(req, res)
-
-Endpoint helper to return roles for current user (from ntlm or header).
-
-**Example (with minimal setup):**
-
-```js
-// Inside a route or use auth.getRoles as handler
-auth.getRoles(req, res);
-```
-
-### removeCache4(userName)
-
-Invalidates the in-memory JWT cache for a user.
-
-**Example (with minimal setup):**
-
-```js
-auth.removeCache4('someuser');
-```
-
-**Headers produced**:
-- x-access-token
-- is-authenticated
-- auth-user
-- isXXX (from ROLES)
-
-Uses in-memory ldapCache. Consider production token strategies.
+- Existing NTLM + LDAP + internal JWT code continues to work unchanged.
+- Add one of the provider blocks (`COGNITO`, `AZURE`, `OIDC`) to your config.
+- Switch to `validateExternalToken(app)` (or let `validateToken` auto-detect).
+- The module now depends on `jwks-rsa` for external providers.
 
 ## License
 
