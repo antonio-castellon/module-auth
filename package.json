@@ -34,5 +34,11 @@
   "homepage": "https://github.com/antonio-castellon/module-auth#readme",
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "files": [
+    "auth.js",
+    "README.md",
+    "LICENSE",
+    "config.auth.template.js"
+  ]
 }
