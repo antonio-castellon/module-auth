@@ -1,7 +1,6 @@
 # @acastellon/auth
 
-Authentication Control System for microservices that uses a combination of 
-NTLM + LDAP + JWT to check the security.
+Authentication Control System for microservices that uses a combination of NTLM + LDAP + JWT.
 
 ## Install
 
@@ -27,15 +26,30 @@ For JWT (common for WS):
 
 Other: auth.setRoles(app); auth.getRoles(req, res); auth.removeCache4(user);
 
-## Headers set
-- x-access-token (JWT)
+## API
+
+### setNTLMAuth(app)
+Installs express-ntlm + post-auth hook that does LDAP role lookup (if enabled) and issues JWT. Sets headers.
+
+### validateToken(app)
+Middleware that validates x-access-token + re-issues from LDAP roles.
+
+### setRoles(app)
+Middleware that only attaches roles from LDAP (no token validation).
+
+### getRoles(req, res)
+Endpoint helper to return roles for current user (from ntlm or header).
+
+### removeCache4(userName)
+Invalidates the in-memory JWT cache for a user.
+
+**Headers produced**:
+- x-access-token
 - is-authenticated
 - auth-user
-- isXXX role flags from LDAP
+- isXXX (from ROLES)
 
-Uses internal cache to avoid repeated LDAP queries.
-
-**Note:** For production, consider shorter EXPIRES or token refresh strategies.
+Uses in-memory ldapCache. Consider production token strategies.
 
 ## License
 
