@@ -47,6 +47,6 @@
     "auth.js",
     "README.md",
     "LICENSE",
-    "config.auth.template.js"
+    "config.auth*.template.js"
   ]
 }

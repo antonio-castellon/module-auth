@@ -2,12 +2,16 @@
 
 **Modern & Legacy Authentication / Authorization middleware for Express microservices.**
 
-Supports:
-- **Legacy**: NTLM + LDAP + internal JWT (fully backward compatible)
-- **Modern cloud providers**: AWS Cognito, Microsoft Azure AD / Entra ID, generic OIDC / OAuth2 (Auth0, Okta, Keycloak, Google, etc.)
-- **SAML 2.0** (Okta, ADFS, Ping, etc.)
-- **Hybrid** modes (external token + LDAP role enrichment)
-- **Secrets from environment variables** (LDAP_PASSWORD, AUTH_JWT_SECRET, SAML_PRIVATE_KEY etc. — never hardcode passwords or keys in config files)
+**Supported authentication methods (all with role mapping + env var secrets support):**
+- **Legacy / NTLM** (on-prem Windows auth + optional LDAP)
+- **AWS Cognito** (user pools, groups as roles via JWKS)
+- **Microsoft Azure AD / Entra ID** (tenant + app registration)
+- **Generic OIDC / OAuth2** (Auth0, Okta, Keycloak, Google, etc.)
+- **SAML 2.0** (Okta, ADFS, Ping, etc. — full login/ACS flow)
+- **Hybrid** (any external provider + optional LDAP role enrichment)
+- **Secrets from environment variables** — passwords, private keys (`SAML_PRIVATE_KEY`), and `passToken` (JWT signing secret) can (and should) come from `process.env` so nothing sensitive is ever hardcoded in config files.
+
+See the per-provider `config.auth.*.template.js` files and the examples below. Full backward compatibility with v1 NTLM+LDAP+JWT setups.
 
 ## Install
 
@@ -92,9 +96,17 @@ app.get('/dashboard', auth.samlAuth, (req, res) => {
 
 ## Configuration
 
-See the heavily commented `config.auth.template.js` for all options and ready-to-use examples for every provider (including SAML).
+Use the split per-method templates for clean examples:
 
-**Important:** Use environment variables for all passwords, private keys and `passToken` (see "Secrets from Environment Variables" section below).
+- `config.auth.legacy.template.js` (NTLM + LDAP)
+- `config.auth.cognito.template.js`
+- `config.auth.azure.template.js`
+- `config.auth.oidc.template.js`
+- `config.auth.saml.template.js`
+
+`config.auth.template.js` remains as a combined overview / starting point (it shows common settings + how to pick one provider block).
+
+**Important:** Use environment variables for all passwords, private keys and `passToken` (see "Secrets from Environment Variables" section below). Never commit real secrets.
 
 Key settings:
 
@@ -152,7 +164,7 @@ The module resolves at construction time (before passing anything to LDAP or SAM
 
 You can also use the classic `process.env.XXX` references inside the config file if you prefer visibility of the var name.
 
-See `config.auth.template.js` for more commented examples.
+See the per-provider `config.auth.*.template.js` (and the combined `config.auth.template.js`) for more commented examples with env var usage.
 
 ## API Reference
 
