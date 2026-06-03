@@ -22,6 +22,43 @@ const secureRandom = require('secure-random');
 const jwksClient = require('jwks-rsa');
 const saml2 = require('saml2-js');
 
+/**
+ * Authentication Control System factory (v2).
+ *
+ * Supports legacy NTLM (express-ntlm) + LDAP, modern external JWT providers
+ * (AWS Cognito, Azure AD/Entra ID, generic OIDC), SAML 2.0 (via saml2-js),
+ * hybrid (external + LDAP role enrichment), and internal JWT issuance.
+ *
+ * Secrets (LDAP passwords, JWT signing keys, SAML private keys/certs, TLS CAs)
+ * can be supplied directly in setup or resolved from environment variables
+ * at initialization time (e.g. LDAP_PASSWORD, AUTH_JWT_SECRET, SAML_PRIVATE_KEY,
+ * SAML_IDP_CERT). This keeps config files free of secrets.
+ *
+ * The returned model exposes the public API methods. Call the methods that
+ * take an Express `app` to install the desired middlewares/routes.
+ *
+ * @param {object} [setup={}]
+ * @param {string} [setup.url] - LDAP/AD URL for legacy NTLM or role lookup
+ * @param {string} [setup.DOMAIN] - NTLM domain
+ * @param {string} [setup.password] - LDAP bind password (or via LDAP_PASSWORD / AUTH_LDAP_PASSWORD env)
+ * @param {string} [setup.passToken] - HMAC secret for signing internal JWTs (or AUTH_JWT_SECRET / JWT_SECRET env; falls back to random)
+ * @param {string} [setup.EXPIRES='1h'] - expiry for issued tokens (jwt 'expiresIn')
+ * @param {object} [setup.ROLES] - map of known role names to enable isXXX header flags, e.g. { admin: true, user: true }
+ * @param {boolean} [setup.NTLM_OPTIONS] - if truthy, enable and configure legacy NTLM middleware in setNTLMAuth
+ * @param {string} [setup.NTLM_PATH='*'] - path scope for NTLM handler
+ * @param {boolean} [setup.NTLM_LDAP] - whether NTLM path should enrich roles via LDAP
+ * @param {boolean} [setup.NTLM_DEBUG] - forward express-ntlm debug logs
+ * @param {object} [setup.tlsOptions] - TLS options for LDAP (ca resolved from env too)
+ * @param {'EXTERNAL_JWT'} [setup.AUTH_TYPE] - hint to prefer external validation in validateToken
+ * @param {object} [setup.COGNITO] - AWS Cognito config: {userPoolId, region?, clientId?, rolesClaim?, roleMapper?, jwksUri?}
+ * @param {object} [setup.AZURE] - Azure/Entra: {tenantId, clientId?, rolesClaim?, roleMapper?}
+ * @param {object} [setup.OIDC] - Generic OIDC: {issuer, clientId?, audience?, jwksUri?, rolesClaim?, roleMapper?}
+ * @param {object} [setup.externalAuth] - Generic external: {type?, issuer?, jwksUri?, clientId?, rolesClaim?, roleMapper?}
+ * @param {object} [setup.SAML] - SAML 2.0: {identityProvider: {entryPoint, issuer, certs?}, serviceProvider: {entityID, privateKey?, certificate?, ...}, loginPath?, acsPath?, logoutPath?, rolesClaim?, roleMapper? }
+ * @param {boolean} [setup.useLdapForRoles=false] - hybrid mode: after external/SAML success, also call LDAP getRoles and merge isXXX flags
+ * @param {boolean} [setup.reissueInternalToken=true] - in external flows, also issue a normalized internal JWT as x-access-token
+ * @returns {{setNTLMAuth: Function, validateToken: Function, validateExternalToken: Function, setupSaml: Function, samlAuth: Function, setRoles: Function, getRoles: Function, removeCache4: Function}}
+ */
 module.exports = function(setup = {}) {
   // Shallow copy to allow safe secret resolution from env vars without mutating
   // the caller's config object.
@@ -31,6 +68,17 @@ module.exports = function(setup = {}) {
   // This lets config files omit secrets entirely (or use placeholders) while
   // supporting 12-factor / no-hardcoded-secrets in source control.
   // Precedence: real value from setup > matching process.env > placeholder/undefined.
+  /**
+   * Resolve a secret value.
+   * Returns the provided value if it is a non-empty, non-placeholder string.
+   * Otherwise scans the listed env var names (in order) and returns the first non-empty value found.
+   * Used for LDAP password, JWT secret, SAML keys, TLS CA etc.
+   *
+   * @private
+   * @param {string|undefined|null} provided - explicit value from setup
+   * @param {...string} envNames - candidate env var names (e.g. 'LDAP_PASSWORD', 'AUTH_JWT_SECRET')
+   * @returns {string|undefined} resolved secret or the original provided (placeholder/undefined)
+   */
   function getSecret(provided, ...envNames) {
     if (provided != null && typeof provided === 'string' && provided.length > 0 && !provided.startsWith('<')) {
       return provided;
@@ -106,14 +154,33 @@ module.exports = function(setup = {}) {
   model.setupSaml = setupSaml;
   model.samlAuth = samlAuth;
 
+  /**
+   * Internal hostname resolution (honors CNAME env override, used for service-to-service legacy bypass).
+   * @private
+   * @returns {string}
+   */
   function getHostName() {
     return process.env.CNAME || os.hostname();
   }
 
+  /**
+   * Clear any cached internal JWT for the given userName.
+   * Forces fresh LDAP role lookup + new token on the next NTLM request for that user.
+   * Useful when roles have changed externally.
+   *
+   * @param {string} userName
+   */
   function removeCache4(userName) {
     ldapCache[userName] = null;
   }
 
+  /**
+   * Copy only 'is*' role flags from source object into target object (in place).
+   * Used to normalize role objects coming from LDAP / external claims before setting headers or signing.
+   * @private
+   * @param {object} into
+   * @param {object} from
+   */
   function setContent(into, from) {
     Object.keys(from || {}).forEach(function(value) {
       if (value.startsWith('is')) {
@@ -122,6 +189,12 @@ module.exports = function(setup = {}) {
     });
   }
 
+  /**
+   * Copy 'is*' role flags from a roles object as response headers (e.g. is-admin: true).
+   * @private
+   * @param {object} res - Express response
+   * @param {object} v - roles object
+   */
   function setHeaders(res, v) {
     Object.keys(v || {}).forEach(function(value) {
       if (value.startsWith('is')) {
@@ -133,6 +206,17 @@ module.exports = function(setup = {}) {
   // ===========================================
   // LEGACY NTLM + LDAP (unchanged behavior)
   // ===========================================
+
+  /**
+   * Install legacy NTLM authentication (using express-ntlm) + optional LDAP role enrichment + internal JWT minting.
+   *
+   * Mounts ntlm middleware (if NTLM_OPTIONS) and a handler on NTLM_PATH (default '*').
+   * On successful NTLM auth: sets is-authenticated, auth-user, x-access-token (signed JWT),
+   * and isXXX headers from ROLES or from ldap.getRoles().
+   * Caches the issued token briefly in memory (ldapCache) to avoid repeated LDAP calls within expiry.
+   *
+   * @param {object} app - Express application instance
+   */
   function setNTLMAuth (app) {
     let options = {};
     if (setup.NTLM_OPTIONS){
@@ -202,6 +286,19 @@ module.exports = function(setup = {}) {
   // ===========================================
   // EXTERNAL JWT VERIFICATION (Cognito, Azure, OIDC)
   // ===========================================
+
+  /**
+   * Build (and return) a verifier function for external JWTs (RS256 + JWKS).
+   * Supports Cognito (auto jwks/issuer from userPoolId+region), Azure (tenantId), generic OIDC (issuer or explicit jwks).
+   * Role extraction: prefers provider's rolesClaim (or top-level rolesClaim), falls back to 'roles'/'groups'.
+   * Applies optional roleMapper and intersects with setup.ROLES to produce isXXX flags.
+   *
+   * The returned function is used by validateToken / validateExternalToken.
+   *
+   * @private
+   * @param {object} setup - the factory setup (may contain COGNITO / AZURE / OIDC / externalAuth / rolesClaim / roleMapper)
+   * @returns {Function} async (token: string) => Promise<{claims:object, roles:object, userName:string}>
+   */
   function createExternalJwtVerifier(setup) {
     // Determine provider config
     let providerConfig = null;
@@ -309,6 +406,12 @@ module.exports = function(setup = {}) {
   }
 
   let externalVerifier = null;
+
+  /**
+   * Lazy-initialize (and cache) the external JWT verifier if any external provider is configured.
+   * @private
+   * @returns {Function|null} the verifyExternalToken function or null
+   */
   function getVerifier() {
     if (!externalVerifier && (setup.AUTH_TYPE === 'EXTERNAL_JWT' || setup.COGNITO || setup.AZURE || setup.OIDC || setup.externalAuth)) {
       externalVerifier = createExternalJwtVerifier(setup);
@@ -319,6 +422,21 @@ module.exports = function(setup = {}) {
   // ===========================================
   // validateToken - works for both legacy internal JWT and external
   // ===========================================
+
+  /**
+   * Install catch-all token validation middleware.
+   *
+   * Behavior depends on configuration:
+   * - If external provider(s) configured (COGNITO/AZURE/OIDC/externalAuth or AUTH_TYPE=EXTERNAL_JWT):
+   *     uses JWKS verification, supports optional hybrid LDAP role merge, sets req.user/req.authClaims,
+   *     sets auth headers, and (unless reissueInternalToken===false) also mints a normalized internal JWT.
+   * - Otherwise (legacy path): requires LDAP, validates incoming internal JWT against a freshly generated
+   *     one from current LDAP roles (isEqualToken), then jwt.verify.
+   *
+   * Special legacy bypass: user 'service-brother' from same hostname is allowed without token.
+   *
+   * @param {object} app - Express app
+   */
   function validateToken (app) {
     const verifier = getVerifier();
 
@@ -417,6 +535,19 @@ module.exports = function(setup = {}) {
   }
 
   // Dedicated external-only middleware (recommended for new apps)
+
+  /**
+   * Install dedicated external-JWT-only validation middleware (recommended for apps using Cognito/Azure/OIDC/SAML-issued tokens).
+   *
+   * Accepts token from Authorization: Bearer ... or x-access-token header.
+   * Always requires an external verifier (throws at mount time if none configured).
+   * Optional LDAP role enrichment when useLdapForRoles + ldap present.
+   * Optionally re-issues internal token (only if setup.reissueInternalToken truthy).
+   * Sets req.user, req.authClaims, auth headers on success.
+   *
+   * @param {object} app - Express app
+   * @throws {Error} if no external provider configured at factory time
+   */
   function validateExternalToken (app) {
     const verifier = getVerifier();
     if (!verifier) {
@@ -481,6 +612,24 @@ module.exports = function(setup = {}) {
     }
   }
 
+  /**
+   * Register SAML 2.0 routes on the Express app:
+   *   GET  loginPath (default /auth/saml/login)  -> redirects to IdP with AuthnRequest
+   *   POST acsPath   (default /auth/saml/acs)    -> Assertion Consumer Service (receives SAMLResponse)
+   *   GET  logoutPath (default /auth/saml/logout) -> clears cookie
+   *
+   * On successful ACS:
+   * - extracts user + roles from assertion (name_id / email / attributes + rolesClaim)
+   * - applies roleMapper
+   * - signs an internal JWT
+   * - sets httpOnly 'saml_auth_token' cookie (secure in prod)
+   * - redirects to RelayState or '/'
+   *
+   * Must be called with SAML.* present in the original setup.
+   *
+   * @param {object} app - Express app instance
+   * @throws {Error} if SAML not configured (no samlSp/samlIdp)
+   */
   function setupSaml(app) {
     if (!samlSp || !samlIdp) {
       throw new Error('SAML not configured in setup. Provide SAML.identityProvider and SAML.serviceProvider');
@@ -551,6 +700,25 @@ module.exports = function(setup = {}) {
   }
 
   // Middleware to protect routes with SAML session (checks the cookie or header)
+
+  /**
+   * SAML session guard middleware.
+   *
+   * Looks for token in:
+   *   - req.cookies.saml_auth_token (set by setupSaml ACS)
+   *   - x-access-token header
+   *   - Authorization: Bearer <token>
+   *
+   * Verifies as internal JWT (signed with PASS_TOKEN). On success:
+   *   sets req.user = decoded, auth-user header, isXXX headers via setHeaders.
+   * On failure: clears cookie + 401/403 JSON.
+   *
+   * Intended to be used after setupSaml routes are mounted.
+   *
+   * @param {object} req - Express request (expects req.cookies if using cookie auth)
+   * @param {object} res
+   * @param {Function} next
+   */
   function samlAuth (req, res, next) {
     const token = req.cookies?.saml_auth_token || req.headers['x-access-token'] || req.headers['authorization']?.replace('Bearer ', '');
 
@@ -573,6 +741,18 @@ module.exports = function(setup = {}) {
   // ===========================================
   // Helper / legacy methods
   // ===========================================
+
+  /**
+   * Legacy token equality check used inside validateToken (NTLM+LDAP path).
+   * Ensures that the presented token and a freshly signed token from current LDAP roles
+   * have identical role flags + same id, and that id matches the NTLM userName.
+   *
+   * @private
+   * @param {string} token - presented x-access-token
+   * @param {string} _token - freshly computed expected token
+   * @param {string} userName - the authenticated NTLM user
+   * @returns {boolean}
+   */
   function isEqualToken (token, _token, userName) {
     let allRoles = true;
     Object.keys(setup.ROLES || {}).forEach(function(value) {
@@ -583,6 +763,12 @@ module.exports = function(setup = {}) {
       (jwt.decode(token).id == userName);
   }
 
+  /**
+   * Legacy middleware: on every request, lookup roles via LDAP for the 'auth-user' header
+   * and set the corresponding isXXX response headers. Does not issue/validate tokens itself.
+   *
+   * @param {object} app - Express app
+   */
   function setRoles (app) {
     app.all('*', function (req, res, next) {
       let userName = req.headers['auth-user'];
@@ -601,6 +787,14 @@ module.exports = function(setup = {}) {
     });
   }
 
+  /**
+   * Legacy role lookup endpoint helper.
+   * Returns JSON roles from LDAP (or minimal {user}) for the current auth-user
+   * (prefers req.ntlm.UserName when available).
+   *
+   * @param {object} req
+   * @param {object} res
+   */
   function getRoles (req, res) {
     let userName = '';
     if (typeof req.ntlm != 'undefined') {
