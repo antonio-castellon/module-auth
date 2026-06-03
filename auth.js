@@ -7,6 +7,7 @@
 // Supports:
 //   - Legacy: NTLM (express-ntlm) + LDAP role lookup + internal JWT
 //   - Modern: AWS Cognito, Azure AD/Entra ID, generic OIDC/OAuth2 JWT validation
+//   - SAML 2.0
 //   - Hybrid: external token + optional LDAP role enrichment
 //
 // Usage remains similar: module.exports = function(setup) { return { setNTLMAuth, validateToken, ... } }
@@ -16,6 +17,7 @@ const ntlm = require('express-ntlm');
 const jwt = require('jsonwebtoken');
 const secureRandom = require('secure-random');
 const jwksClient = require('jwks-rsa');
+const saml2 = require('saml2-js');
 
 module.exports = function(setup = {}) {
   const PASS_TOKEN = setup.passToken || secureRandom(256, { type: 'Buffer' });
@@ -28,7 +30,7 @@ module.exports = function(setup = {}) {
       ldap = require('@acastellon/ldap')(setup);
     }
   } catch (e) {
-    console.warn('[@acastellon/auth] LDAP module not available or not configured. Pure external JWT mode only.');
+    console.warn('[@acastellon/auth] LDAP module not available or not configured. Pure external JWT/SAML mode only.');
   }
 
   let ldapCache = new Array();
@@ -40,6 +42,8 @@ module.exports = function(setup = {}) {
   model.setRoles = setRoles;
   model.getRoles = getRoles;
   model.removeCache4 = removeCache4;
+  model.setupSaml = setupSaml;
+  model.samlAuth = samlAuth;
 
   function getHostName() {
     return process.env.CNAME || os.hostname();
@@ -68,20 +72,20 @@ module.exports = function(setup = {}) {
   // ===========================================
   // LEGACY NTLM + LDAP (unchanged behavior)
   // ===========================================
-  function setNTLMAuth(app) {
+  function setNTLMAuth (app) {
     let options = {};
-    if (setup.NTLM_OPTIONS) {
+    if (setup.NTLM_OPTIONS){
       options = {
-        debug: function() {
+        debug: function () {
           if (setup.NTLM_DEBUG) {
-            var args = Array.prototype.slice.apply(arguments);
-            console.log.apply(null, args);
+            var args = Array.prototype.slice.apply( arguments );
+            console.log.apply( null, args );
           }
         },
         domain: ldap ? ldap.DOMAIN : setup.DOMAIN,
         domaincontroller: ldap ? ldap.LDAP_URL : setup.url,
         tlsOptions: setup.tlsOptions,
-        forbidden: function(req, res) {
+        forbidden: function (req, res) {
           res.status(401).location(req.url).end();
         }
       };
@@ -89,11 +93,11 @@ module.exports = function(setup = {}) {
 
     app.use(ntlm(options));
 
-    app.all(setup.NTLM_PATH || '*', function(request, res, next) {
+    app.all(setup.NTLM_PATH || '*', function (request, res, next) {
       let userName = request.ntlm.UserName;
 
-      if (ldapCache[userName] != null) {
-        if (jwt.decode(ldapCache[userName]).exp >= new Date().getTime() / 1000) {
+      if(ldapCache[userName] != null){
+        if (jwt.decode(ldapCache[userName]).exp >= new Date().getTime()/1000) {
           res.setHeader('x-access-token', ldapCache[userName]);
           res.setHeader('is-authenticated', true);
           res.setHeader('auth-user', userName);
@@ -110,7 +114,7 @@ module.exports = function(setup = {}) {
 
         const doLdap = setup.NTLM_LDAP && ldap;
         if (doLdap) {
-          ldap.getRoles(userName).then(function(v) {
+          ldap.getRoles(userName).then(function (v) {
             setContent(_content, v);
             let token = jwt.sign(_content, PASS_TOKEN, { expiresIn: setup.EXPIRES });
             res.setHeader('x-access-token', token);
@@ -124,12 +128,12 @@ module.exports = function(setup = {}) {
           next();
         }
       } else {
-        Object.keys(setup.ROLES || {}).forEach(function(value) {
+        Object.keys(setup.ROLES || {}).forEach(function(value){
           res.setHeader(value, false);
         });
         res.setHeader('x-access-token', null);
         ldapCache[userName] = null;
-        res.status(401).json({ Message: 'Unauthorized access ', AuthUser: userName });
+        res.status(401).json({Message: 'Unauthorized access ', AuthUser: userName});
       }
     });
   }
@@ -254,7 +258,7 @@ module.exports = function(setup = {}) {
   // ===========================================
   // validateToken - works for both legacy internal JWT and external
   // ===========================================
-  function validateToken(app) {
+  function validateToken (app) {
     const verifier = getVerifier();
 
     app.all('*', function(req, res, next) {
@@ -333,15 +337,15 @@ module.exports = function(setup = {}) {
           return res.status(403).send({
             auth: false,
             message: 'No token provided, or incorrect ones.',
-            host: getHostName(),
+            host : getHostName(),
             origin: req.get('host'),
-            user: userName
+            user : userName
           });
         }
 
-        jwt.verify(token, PASS_TOKEN, function(err, decoded) {
+        jwt.verify(token, PASS_TOKEN, function (err, decoded) {
           if (err) {
-            return res.status(500).send({ auth: false, message: 'Failed to authenticate token. Maybe token is expired.' });
+            return res.status(500).send({auth: false, message: 'Failed to authenticate token. Maybe token is expired.'});
           } else {
             req.user = decoded;
             next();
@@ -352,7 +356,7 @@ module.exports = function(setup = {}) {
   }
 
   // Dedicated external-only middleware (recommended for new apps)
-  function validateExternalToken(app) {
+  function validateExternalToken (app) {
     const verifier = getVerifier();
     if (!verifier) {
       throw new Error('No external JWT provider configured. Use COGNITO, AZURE, OIDC or externalAuth in setup.');
@@ -400,9 +404,115 @@ module.exports = function(setup = {}) {
   }
 
   // ===========================================
+  // SAML 2.0 Support
+  // ===========================================
+  let samlIdp = null;
+  let samlSp = null;
+  let samlConfig = null;
+
+  if (setup.SAML) {
+    samlConfig = setup.SAML;
+    try {
+      samlIdp = new saml2.IdentityProvider(samlConfig.identityProvider || {});
+      samlSp = new saml2.ServiceProvider(samlConfig.serviceProvider || {});
+    } catch (e) {
+      console.error('Failed to initialize SAML providers:', e.message);
+    }
+  }
+
+  function setupSaml(app) {
+    if (!samlSp || !samlIdp) {
+      throw new Error('SAML not configured in setup. Provide SAML.identityProvider and SAML.serviceProvider');
+    }
+
+    const loginPath = samlConfig.loginPath || '/auth/saml/login';
+    const acsPath = samlConfig.acsPath || '/auth/saml/acs';
+    const logoutPath = samlConfig.logoutPath || '/auth/saml/logout';
+
+    // Initiate SAML login - redirect to IdP
+    app.get(loginPath, (req, res) => {
+      samlSp.create_login_request_url(samlIdp, {}, (err, loginUrl) => {
+        if (err) {
+          console.error('SAML login request error:', err);
+          return res.status(500).send('SAML login error');
+        }
+        res.redirect(loginUrl);
+      });
+    });
+
+    // Assertion Consumer Service (ACS) - IdP posts the SAMLResponse here
+    app.post(acsPath, (req, res) => {
+      const options = { request_body: req.body };
+      samlSp.post_assert(samlIdp, options, (err, samlResponse) => {
+        if (err) {
+          console.error('SAML assert error:', err);
+          return res.status(403).send('SAML authentication failed');
+        }
+
+        const user = samlResponse.user;
+        const userName = user.name_id || user.email || user.attributes?.email || 'saml-user';
+
+        // Build roles object similar to other providers
+        let roles = { id: userName, user: userName };
+
+        const rolesClaim = samlConfig.rolesClaim || setup.rolesClaim || 'roles';
+        let rawRoles = user[rolesClaim] || user.attributes?.[rolesClaim] || [];
+        if (!Array.isArray(rawRoles)) rawRoles = [rawRoles];
+
+        const roleMapper = samlConfig.roleMapper || setup.roleMapper || {};
+        rawRoles.forEach(roleName => {
+          const mapped = roleMapper[roleName] || roleName;
+          roles['is' + mapped] = true;
+        });
+
+        // Issue internal JWT (stateless)
+        const token = jwt.sign(roles, PASS_TOKEN, { expiresIn: setup.EXPIRES || 86400 });
+
+        // Set httpOnly cookie for browser apps
+        res.cookie('saml_auth_token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+
+        // For API clients, could return JSON with token instead
+        // res.json({ token });
+
+        // Redirect to app home or requested URL
+        const redirectTo = req.query.RelayState || '/';
+        res.redirect(redirectTo);
+      });
+    });
+
+    // Simple logout (clear cookie)
+    app.get(logoutPath, (req, res) => {
+      res.clearCookie('saml_auth_token');
+      res.redirect('/');
+    });
+
+    console.log(`SAML routes registered: ${loginPath}, ${acsPath}, ${logoutPath}`);
+  }
+
+  // Middleware to protect routes with SAML session (checks the cookie or header)
+  function samlAuth (req, res, next) {
+    const token = req.cookies?.saml_auth_token || req.headers['x-access-token'] || req.headers['authorization']?.replace('Bearer ', '');
+
+    if (!token) {
+      return res.status(401).json({ message: 'SAML authentication required. Please login at /auth/saml/login' });
+    }
+
+    try {
+      const decoded = jwt.verify(token, PASS_TOKEN);
+      req.user = decoded;
+      res.setHeader('auth-user', decoded.id || decoded.user);
+      setHeaders(res, decoded);
+      next();
+    } catch (err) {
+      res.clearCookie('saml_auth_token');
+      return res.status(403).json({ message: 'Invalid or expired SAML session' });
+    }
+  }
+
+  // ===========================================
   // Helper / legacy methods
   // ===========================================
-  function isEqualToken(token, _token, userName) {
+  function isEqualToken (token, _token, userName) {
     let allRoles = true;
     Object.keys(setup.ROLES || {}).forEach(function(value) {
       allRoles = allRoles && (jwt.decode(token)[value] == jwt.decode(_token)[value]);
@@ -412,13 +522,14 @@ module.exports = function(setup = {}) {
       (jwt.decode(token).id == userName);
   }
 
-  function setRoles(app) {
-    app.all('*', function(req, res, next) {
+  function setRoles (app) {
+    app.all('*', function (req, res, next) {
       let userName = req.headers['auth-user'];
+
       if (typeof userName == 'undefined' || userName == '') {
-        res.status(401).send({ message: 'Authentication required' });
+        res.status(401).send({message: 'Authentication required'});
       } else if (ldap) {
-        ldap.getRoles(userName).then(function(v) {
+        ldap.getRoles(userName).then(function (v) {
           setHeaders(res, v);
           res.setHeader('auth-user', userName);
           next();
@@ -429,18 +540,18 @@ module.exports = function(setup = {}) {
     });
   }
 
-  function getRoles(req, res) {
+  function getRoles (req, res) {
     let userName = '';
     if (typeof req.ntlm != 'undefined') {
-      userName = req.ntlm.UserName || req.headers['auth-user'];
+      userName = req.ntlm.UserName || req.headers['auth-user'] ;
     } else {
-      userName = req.headers['auth-user'];
+      userName = req.headers['auth-user'] ;
     }
 
     if (typeof userName == 'undefined' || userName == '') {
-      res.status(401).send({ message: 'Authentication required' });
+      res.status(401).send({message: 'Authentication required'});
     } else if (ldap) {
-      ldap.getRoles(userName).then(function(v) {
+      ldap.getRoles(userName).then(function (v) {
         res.json(v);
       });
     } else {
