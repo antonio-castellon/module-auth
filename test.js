@@ -56,4 +56,27 @@ try {
   console.error('Azure config load failed:', e.message);
 }
 
+// Test 4: SAML config loads and exposes setupSaml + samlAuth
+try {
+  const samlConfig = {
+    AUTH_TYPE: 'SAML',
+    SAML: {
+      identityProvider: {
+        ssoLoginUrl: 'https://idp.example.com/sso',
+        certificates: ['dummy-cert']
+      },
+      serviceProvider: {
+        entityId: 'https://app.example.com',
+        assertEndpoint: 'https://app.example.com/auth/saml/acs'
+      }
+    }
+  };
+  const authSaml = require('./auth.js')(samlConfig);
+  assert(typeof authSaml.setupSaml === 'function');
+  assert(typeof authSaml.samlAuth === 'function');
+  console.log('✓ SAML config loads and exposes setupSaml + samlAuth');
+} catch (e) {
+  console.error('SAML config load failed:', e.message);
+}
+
 console.log('\nAll basic smoke tests passed. For real integration tests you need actual providers or mocks.');
