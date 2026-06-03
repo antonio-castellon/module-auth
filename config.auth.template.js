@@ -30,7 +30,7 @@ module.exports = {
   },
 
   // === AUTH TYPE ===
-  // 'NTLM' (default, legacy) | 'EXTERNAL_JWT'
+  // 'NTLM' (default, legacy) | 'EXTERNAL_JWT' | 'SAML'
   AUTH_TYPE: 'NTLM',
 
   // === EXTERNAL AUTH PROVIDERS (new in v2) ===
@@ -60,6 +60,32 @@ module.exports = {
   //   // rolesClaim: 'groups' or 'roles',
   //   // roleMapper: { ... }
   //   // jwksUri: 'https://.../.well-known/jwks.json'  // optional, auto-discovered if not provided
+  // },
+
+  // --- SAML 2.0 ---
+  // SAML: {
+  //   // Identity Provider (IdP) metadata - usually from your IdP (Okta, ADFS, etc.)
+  //   identityProvider: {
+  //     ssoLoginUrl: 'https://idp.example.com/saml/sso',
+  //     ssoLogoutUrl: 'https://idp.example.com/saml/slo',
+  //     certificates: [ '-----BEGIN CERTIFICATE-----
+MIIC...-----END CERTIFICATE-----' ]
+  //   },
+  //   // Service Provider (your app) config
+  //   serviceProvider: {
+  //     entityId: 'https://your-app.example.com',
+  //     privateKey: '-----BEGIN RSA PRIVATE KEY-----
+MIIE...-----END RSA PRIVATE KEY-----',  // optional for signed requests
+  //     certificate: '-----BEGIN CERTIFICATE-----
+MIIC...-----END CERTIFICATE-----', // optional
+  //     assertEndpoint: 'https://your-app.example.com/auth/saml/acs'  // ACS URL where IdP posts assertion
+  //   },
+  //   // How to extract roles from SAML assertion
+  //   rolesClaim: 'http://schemas.microsoft.com/ws/2008/06/identity/claims/role', // or custom attribute name
+  //   // roleMapper: { 'CN=Admins,OU=Groups': 'Admin' },
+  //   // loginPath: '/auth/saml/login',  // default
+  //   // acsPath: '/auth/saml/acs',      // default
+  //   // logoutPath: '/auth/saml/logout' // optional
   // },
 
   // === Hybrid / Advanced ===
