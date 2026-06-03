@@ -1,6 +1,12 @@
 # @acastellon/auth
 
-Authentication Control System for microservices that uses a combination of NTLM + LDAP + JWT.
+**Modern & Legacy Authentication / Authorization middleware for Express microservices.**
+
+Supports:
+- **Legacy**: NTLM + LDAP + internal JWT (fully backward compatible)
+- **Modern cloud providers**: AWS Cognito, Microsoft Azure AD / Entra ID, generic OIDC / OAuth2 (Auth0, Okta, Keycloak, Google, etc.)
+- **SAML 2.0** (Okta, ADFS, Ping, etc.)
+- **Hybrid** modes (external token + LDAP role enrichment)
 
 ## Install
 
@@ -8,120 +14,165 @@ Authentication Control System for microservices that uses a combination of NTLM 
 npm install @acastellon/auth
 ```
 
-## Config (see config.auth.template.js for full)
+## Quick Start
+
+### Legacy NTLM (on-prem)
 
 ```js
-module.exports = {
-  // ... NTLM/JWT/LDAP settings, ROLES map, MOCKUP_*, passToken, EXPIRES, etc.
-};
+const auth = require('@acastellon/auth')(require('./config.auth.js'));
+
+auth.setNTLMAuth(app);           // protects routes with NTLM + optional LDAP roles
+// or
+auth.validateToken(app);         // validates internal JWT + LDAP roles
 ```
 
-const auth = require('@acastellon/auth')(def_auth);
-
-## Usage in Express app
-
-In case of NTLM (usually for Web FrontEnd):
-
-    auth.setNTLMAuth(app);
-
-For JWT (common for WS):
-
-    auth.validateToken(app);
-
-Other: auth.setRoles(app); auth.getRoles(req, res); auth.removeCache4(user);
-
-## API
-
-### setNTLMAuth(app)
-
-Installs express-ntlm + post-auth hook that does LDAP role lookup (if enabled) and issues JWT. Sets headers.
-
-**Example (with minimal setup):**
+### Modern (AWS Cognito example)
 
 ```js
-const express = require('express');
-const authMod = require('@acastellon/auth');
+const auth = require('@acastellon/auth')({
+  AUTH_TYPE: 'EXTERNAL_JWT',
+  COGNITO: {
+    region: 'eu-west-1',
+    userPoolId: 'eu-west-1_xxxxxxxx',
+    clientId: 'your-app-client-id',     // for audience validation
+    rolesClaim: 'cognito:groups',
+    roleMapper: { 'Admins': 'Admin' }
+  },
+  ROLES: { Admin: 'Admins', User: 'Users' },
+  EXPIRES: 3600
+});
 
-const AUTH_CONFIG = require('./config.auth.js'); // your config
-const auth = authMod(AUTH_CONFIG);
+// Use the dedicated external validator (recommended)
+auth.validateExternalToken(app);
 
-const app = express();
-
-auth.setNTLMAuth(app);
-
-app.listen(3000);
-```
-
-### validateToken(app)
-
-Middleware that validates x-access-token + re-issues from LDAP roles.
-
-**Example (with minimal setup):**
-
-```js
-const express = require('express');
-const authMod = require('@acastellon/auth');
-
-const AUTH_CONFIG = require('./config.auth.js');
-const auth = authMod(AUTH_CONFIG);
-
-const app = express();
-
+// or the smart one that auto-detects
 auth.validateToken(app);
-
-app.get('/protected', (req, res) => res.json({ user: req.headers['auth-user'] }));
-
-app.listen(3000);
 ```
 
-### setRoles(app)
-
-Middleware that only attaches roles from LDAP (no token validation).
-
-**Example (with minimal setup):**
+### SAML 2.0 Example (Okta / ADFS / etc.)
 
 ```js
-const express = require('express');
-const authMod = require('@acastellon/auth');
+const auth = require('@acastellon/auth')({
+  AUTH_TYPE: 'SAML',
+  SAML: {
+    identityProvider: {
+      ssoLoginUrl: 'https://your-idp.com/app/sso/saml',
+      ssoLogoutUrl: 'https://your-idp.com/app/slo/saml',
+      certificates: [
+        `-----BEGIN CERTIFICATE-----
+MIIC... (paste IdP cert here)
+-----END CERTIFICATE-----`
+      ]
+    },
+    serviceProvider: {
+      entityId: 'https://your-app.com',
+      assertEndpoint: 'https://your-app.com/auth/saml/acs'
+    },
+    rolesClaim: 'http://schemas.xmlsoap.org/claims/Group',
+    roleMapper: { 'Admins': 'Admin' },
+    loginPath: '/auth/saml/login',
+    acsPath: '/auth/saml/acs'
+  },
+  ROLES: { Admin: 'Admins', User: 'Users' }
+});
 
-const AUTH_CONFIG = require('./config.auth.js');
-const auth = authMod(AUTH_CONFIG);
+// Setup the SAML routes (login + ACS)
+auth.setupSaml(app);
 
-const app = express();
+// Protect routes
+app.get('/dashboard', auth.samlAuth, (req, res) => {
+  res.json({ user: req.user });
+});
 
-auth.setRoles(app);
-
-app.listen(3000);
+// Users go to /auth/saml/login to start SAML flow
 ```
 
-### getRoles(req, res)
+## Configuration
 
-Endpoint helper to return roles for current user (from ntlm or header).
+See the heavily commented `config.auth.template.js` for all options and ready-to-use examples for every provider (including SAML).
 
-**Example (with minimal setup):**
+Key settings:
 
 ```js
-// Inside a route or use auth.getRoles as handler
-auth.getRoles(req, res);
+{
+  AUTH_TYPE: 'NTLM' | 'EXTERNAL_JWT' | 'SAML',
+
+  // Modern providers
+  COGNITO: { ... },
+  AZURE:   { ... },
+  OIDC:    { ... },
+  SAML:    { identityProvider, serviceProvider, rolesClaim?, roleMapper?, loginPath?, acsPath? },
+
+  // Optional
+  useLdapForRoles: false,
+  rolesClaim: 'roles',
+  roleMapper: { ... }
+}
 ```
 
-### removeCache4(userName)
+## API Reference
 
-Invalidates the in-memory JWT cache for a user.
+### Legacy / NTLM
+- `setNTLMAuth(app)`
+- `setRoles(app)`
+- `getRoles(req, res)`
+- `removeCache4(userName)`
 
-**Example (with minimal setup):**
+### JWT-based (Cognito, Azure, OIDC, custom)
+- `validateToken(app)` — smart, works for legacy + external
+- `validateExternalToken(app)` — clean dedicated middleware for cloud JWTs
+
+### SAML 2.0
+- `setupSaml(app)` — registers login, ACS (assertion consumer), and logout routes based on config
+- `samlAuth` — middleware to protect routes (checks SAML session cookie or token)
+
+After successful SAML login, an internal JWT is issued and stored in an httpOnly cookie (`saml_auth_token`). The `samlAuth` middleware validates it and populates `req.user` + sets the usual `isXXX` headers.
+
+## More Examples
+
+### Protecting an API route with external JWT (Cognito)
 
 ```js
-auth.removeCache4('someuser');
+const auth = require('@acastellon/auth')(cognitoConfig);
+
+auth.validateExternalToken(app);
+
+app.get('/api/data', (req, res) => {
+  // req.user contains { id, isAdmin: true, ... }
+  res.json({ data: 'secret', user: req.user });
+});
 ```
 
-**Headers produced**:
-- x-access-token
-- is-authenticated
-- auth-user
-- isXXX (from ROLES)
+### Full SAML flow with role-based access
 
-Uses in-memory ldapCache. Consider production token strategies.
+```js
+// In your main app
+app.use(auth.samlAuth); // or per-route
+
+app.get('/admin', (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).send('Admins only');
+  res.send('Welcome admin');
+});
+```
+
+### Hybrid: External JWT + LDAP roles
+
+```js
+{
+  AUTH_TYPE: 'EXTERNAL_JWT',
+  COGNITO: { ... },
+  useLdapForRoles: true,   // still calls LDAP for additional roles
+  // ... ldap config
+}
+```
+
+## Migrating from v1
+
+- Existing NTLM + LDAP + internal JWT code continues to work unchanged.
+- Add provider blocks to config.
+- For JWT providers use `validateExternalToken` or `validateToken`.
+- For SAML use `setupSaml(app)` + `samlAuth` middleware.
+- New dependency `saml2-js` for SAML support.
 
 ## License
 
