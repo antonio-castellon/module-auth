@@ -1,5 +1,18 @@
-# .gitignore
-/config.auth.js
-node_modules/*
-module-auth.iml
+# dependencies
+/node_modules/
+
+# IDE
+*.iml
+
+# lockfiles
 package-lock.json
+
+# local configs
+/config.*.js
+/config.*.json
+
+# env
+.env*
+
+# logs
+*.log

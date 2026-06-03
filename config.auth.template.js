@@ -1,28 +1,22 @@
 module.exports = {
-    url: 'ldap://<address>:389'
-    ,DOMAIN:'<domain>'
-    ,baseDN: '<baseDN>'
-    ,username: '<user-ldap>'
-    ,password: '<password>'
-    ,NTLM_DEBUG: false /* to activate log messages from NTLM interface */
-    ,NTLM_OPTIONS: false /* enable the configuration or use the default conf */
-    ,NTLM_LDAP: false /* to enable request to ldap module automatically for each NTLM request */
-    ,NTLM_PATH: '*' /* path to be controlled by NTLM, by default is '*'  */
-    ,tlsOptions: {
-        ca: '<path_and_file_ldap_server_certificate>'
-        ,'rejectUnauthorized': false
-    }
-    ,CNAME: 'dev.example.com'
-
-    ,passToken: '<passphrase-optional>'  /* if doesn't exists the module generates ones automatically */
-    ,EXPIRES: 86400                     /* expires in 24 hours */
-
-
-    ,MOCKUP_USERS : ['acastellon','rlopez']
-    ,MOCKUP_ROLES : ['User','CManager']
-    ,ROLES : {
-        'User': 'GI RD USER '
-        , 'Admin': 'GI RD  ADMINISTRATOR '
-        , 'Viewer': 'GI RD  VIEWER '
-    }
-}
+  url: 'ldap://<address>:389',
+  DOMAIN:'<domain>',
+  baseDN: '<baseDN>',
+  username: '<user-ldap>',
+  password: '<password>',
+  NTLM_DEBUG: false,
+  NTLM_OPTIONS: false,
+  NTLM_LDAP: false,
+  NTLM_PATH: '*',
+  tlsOptions: { ca: '<path>', 'rejectUnauthorized': false },
+  CNAME: 'dev.example.com',
+  passToken: '<passphrase-optional>',
+  EXPIRES: 86400,
+  MOCKUP_USERS : ['acastellon','rlopez'],
+  MOCKUP_ROLES : ['User','CManager'],
+  ROLES : {
+    'User': 'GI RD USER ',
+    'Admin': 'GI RD  ADMINISTRATOR ',
+    'Viewer': 'GI RD  VIEWER '
+  }
+};
