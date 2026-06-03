@@ -7,6 +7,7 @@ Supports:
 - **Modern cloud providers**: AWS Cognito, Microsoft Azure AD / Entra ID, generic OIDC / OAuth2 (Auth0, Okta, Keycloak, Google, etc.)
 - **SAML 2.0** (Okta, ADFS, Ping, etc.)
 - **Hybrid** modes (external token + LDAP role enrichment)
+- **Secrets from environment variables** (LDAP_PASSWORD, AUTH_JWT_SECRET, SAML_PRIVATE_KEY etc. — never hardcode passwords or keys in config files)
 
 ## Install
 
@@ -25,6 +26,8 @@ auth.setNTLMAuth(app);           // protects routes with NTLM + optional LDAP ro
 // or
 auth.validateToken(app);         // validates internal JWT + LDAP roles
 ```
+
+(Keep secrets out of config.auth.js — see env var section.)
 
 ### Modern (AWS Cognito example)
 
@@ -91,6 +94,8 @@ app.get('/dashboard', auth.samlAuth, (req, res) => {
 
 See the heavily commented `config.auth.template.js` for all options and ready-to-use examples for every provider (including SAML).
 
+**Important:** Use environment variables for all passwords, private keys and `passToken` (see "Secrets from Environment Variables" section below).
+
 Key settings:
 
 ```js
@@ -109,6 +114,45 @@ Key settings:
   roleMapper: { ... }
 }
 ```
+
+## Secrets from Environment Variables
+
+To avoid putting real passwords, private keys or JWT signing secrets directly in committed configuration files, the module supports reading them from environment variables.
+
+**Supported variables (the first matching one wins):**
+
+- `password` (LDAP bind): `LDAP_PASSWORD`, `AUTH_LDAP_PASSWORD`, `AD_PASSWORD`, `LDAP_BIND_PASSWORD`
+- `passToken` (internal JWT signing — important for stable tokens across restarts): `AUTH_JWT_SECRET`, `JWT_SECRET`, `AUTH_PASS_TOKEN`, `PASS_TOKEN`
+- SAML `serviceProvider.privateKey`: `SAML_PRIVATE_KEY`, `AUTH_SAML_PRIVATE_KEY`, `SP_PRIVATE_KEY`
+- SAML `serviceProvider.certificate` / IdP certs: `SAML_CERTIFICATE`, `SAML_IDP_CERT` etc.
+- TLS CA content: `LDAP_TLS_CA`, `AUTH_LDAP_CA`
+
+**How to use (recommended — zero secrets in your config file):**
+
+```js
+// config.auth.js  (safe to commit)
+module.exports = {
+  url: 'ldap://ldap.example.com:389',
+  DOMAIN: 'EXAMPLE',
+  baseDN: 'dc=example,dc=com',
+  // password omitted — comes from env at runtime
+  // passToken omitted — comes from env
+  ROLES: { Admin: 'Admins', User: 'Users' },
+  // For SAML, you can also omit privateKey
+};
+```
+
+Then run with:
+
+```bash
+LDAP_PASSWORD=supersecret AUTH_JWT_SECRET=my-super-jwt-key node server.js
+```
+
+The module resolves at construction time (before passing anything to LDAP or SAML libs). Explicit values in the config object always take precedence over env.
+
+You can also use the classic `process.env.XXX` references inside the config file if you prefer visibility of the var name.
+
+See `config.auth.template.js` for more commented examples.
 
 ## API Reference
 

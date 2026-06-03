@@ -9,6 +9,9 @@
 //   - Modern: AWS Cognito, Azure AD/Entra ID, generic OIDC/OAuth2 JWT validation
 //   - SAML 2.0
 //   - Hybrid: external token + optional LDAP role enrichment
+//   - Passwords, private keys and signing secrets from environment variables
+//     (e.g. LDAP_PASSWORD, AUTH_JWT_SECRET, SAML_PRIVATE_KEY) so they are never
+//     hardcoded in committed config files.
 //
 // Usage remains similar: module.exports = function(setup) { return { setNTLMAuth, validateToken, ... } }
 
@@ -20,6 +23,64 @@ const jwksClient = require('jwks-rsa');
 const saml2 = require('saml2-js');
 
 module.exports = function(setup = {}) {
+  // Shallow copy to allow safe secret resolution from env vars without mutating
+  // the caller's config object.
+  setup = { ...setup };
+
+  // Resolve secrets (passwords/keys) from env if not provided with a concrete value.
+  // This lets config files omit secrets entirely (or use placeholders) while
+  // supporting 12-factor / no-hardcoded-secrets in source control.
+  // Precedence: real value from setup > matching process.env > placeholder/undefined.
+  function getSecret(provided, ...envNames) {
+    if (provided != null && typeof provided === 'string' && provided.length > 0 && !provided.startsWith('<')) {
+      return provided;
+    }
+    for (const envName of envNames) {
+      const val = process.env[envName];
+      if (val != null && val !== '') {
+        return val;
+      }
+    }
+    return provided;
+  }
+
+  // Apply to known sensitive fields (affects both direct use and delegation to @acastellon/ldap)
+  setup.password = getSecret(setup.password, 'LDAP_PASSWORD', 'AUTH_LDAP_PASSWORD', 'AD_PASSWORD', 'LDAP_BIND_PASSWORD');
+  setup.passToken = getSecret(setup.passToken, 'AUTH_JWT_SECRET', 'JWT_SECRET', 'AUTH_PASS_TOKEN', 'PASS_TOKEN');
+
+  if (setup.tlsOptions) {
+    setup.tlsOptions = { ...setup.tlsOptions };
+    setup.tlsOptions.ca = getSecret(setup.tlsOptions.ca, 'LDAP_TLS_CA', 'AUTH_LDAP_CA', 'TLS_CA');
+  }
+
+  // SAML requires deep handling because privateKey lives in nested serviceProvider
+  if (setup.SAML) {
+    setup.SAML = { ...setup.SAML };
+    if (setup.SAML.serviceProvider) {
+      setup.SAML.serviceProvider = { ...setup.SAML.serviceProvider };
+      if (setup.SAML.serviceProvider.privateKey != null) {
+        setup.SAML.serviceProvider.privateKey = getSecret(
+          setup.SAML.serviceProvider.privateKey,
+          'SAML_PRIVATE_KEY', 'AUTH_SAML_PRIVATE_KEY', 'SP_PRIVATE_KEY'
+        );
+      }
+      if (setup.SAML.serviceProvider.certificate != null) {
+        setup.SAML.serviceProvider.certificate = getSecret(
+          setup.SAML.serviceProvider.certificate,
+          'SAML_CERTIFICATE', 'AUTH_SAML_CERT'
+        );
+      }
+    }
+    if (setup.SAML.identityProvider) {
+      setup.SAML.identityProvider = { ...setup.SAML.identityProvider };
+      if (Array.isArray(setup.SAML.identityProvider.certificates)) {
+        setup.SAML.identityProvider.certificates = setup.SAML.identityProvider.certificates.map((c) =>
+          getSecret(c, 'SAML_IDP_CERT', 'AUTH_SAML_IDP_CERT', 'IDP_CERT')
+        );
+      }
+    }
+  }
+
   const PASS_TOKEN = setup.passToken || secureRandom(256, { type: 'Buffer' });
   const model = {};
 

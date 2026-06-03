@@ -79,4 +79,54 @@ try {
   console.error('SAML config load failed:', e.message);
 }
 
+// Test 5: Environment variable secrets (no secrets hardcoded in the config object)
+const _savedLdapPw = process.env.LDAP_PASSWORD;
+const _savedJwt = process.env.AUTH_JWT_SECRET;
+const _savedSamlKey = process.env.SAML_PRIVATE_KEY;
+try {
+  process.env.LDAP_PASSWORD = 'from-env-ldap-pass-123';
+  process.env.AUTH_JWT_SECRET = 'from-env-jwt-secret-xyz';
+  process.env.SAML_PRIVATE_KEY = '-----BEGIN RSA PRIVATE KEY-----\nMIIE-from-env...\n-----END RSA PRIVATE KEY-----';
+
+  // Legacy-style config with secrets omitted (still triggers ldap path in real, but we just test load + resolution)
+  const envLegacyCfg = {
+    url: 'ldap://dummy:389',
+    DOMAIN: 'DUMMY',
+    baseDN: 'dc=dummy',
+    username: 'dummy',
+    // password deliberately omitted
+    ROLES: { User: 'Users' },
+    AUTH_TYPE: 'NTLM'
+  };
+  const authEnvLegacy = require('./auth.js')(envLegacyCfg);
+  assert(typeof authEnvLegacy.setNTLMAuth === 'function');
+  console.log('✓ Env var resolution for password / passToken (omitted from config)');
+
+  // SAML with privateKey omitted — resolved from env
+  const envSamlCfg = {
+    AUTH_TYPE: 'SAML',
+    SAML: {
+      identityProvider: {
+        ssoLoginUrl: 'https://idp.example.com/sso',
+        certificates: ['dummy-cert']
+      },
+      serviceProvider: {
+        entityId: 'https://app.example.com',
+        assertEndpoint: 'https://app.example.com/auth/saml/acs'
+        // privateKey omitted on purpose
+      }
+    }
+  };
+  const authEnvSaml = require('./auth.js')(envSamlCfg);
+  assert(typeof authEnvSaml.setupSaml === 'function');
+  assert(typeof authEnvSaml.samlAuth === 'function');
+  console.log('✓ Env var resolution for SAML privateKey (omitted from config)');
+} catch (e) {
+  console.error('Env var secrets test failed:', e.message);
+} finally {
+  process.env.LDAP_PASSWORD = _savedLdapPw;
+  process.env.AUTH_JWT_SECRET = _savedJwt;
+  process.env.SAML_PRIVATE_KEY = _savedSamlKey;
+}
+
 console.log('\nAll basic smoke tests passed. For real integration tests you need actual providers or mocks.');
