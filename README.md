@@ -5,6 +5,7 @@
 Supports:
 - **Legacy**: NTLM + LDAP + internal JWT (fully backward compatible)
 - **Modern cloud providers**: AWS Cognito, Microsoft Azure AD / Entra ID, generic OIDC / OAuth2 (Auth0, Okta, Keycloak, Google, etc.)
+- **SAML 2.0** (Okta, ADFS, Ping, etc.)
 - **Hybrid** modes (external token + LDAP role enrichment)
 
 ## Install
@@ -45,65 +46,133 @@ const auth = require('@acastellon/auth')({
 auth.validateExternalToken(app);
 
 // or the smart one that auto-detects
-// auth.validateToken(app);
+auth.validateToken(app);
+```
+
+### SAML 2.0 Example (Okta / ADFS / etc.)
+
+```js
+const auth = require('@acastellon/auth')({
+  AUTH_TYPE: 'SAML',
+  SAML: {
+    identityProvider: {
+      ssoLoginUrl: 'https://your-idp.com/app/sso/saml',
+      ssoLogoutUrl: 'https://your-idp.com/app/slo/saml',
+      certificates: [
+        `-----BEGIN CERTIFICATE-----
+MIIC... (paste IdP cert here)
+-----END CERTIFICATE-----`
+      ]
+    },
+    serviceProvider: {
+      entityId: 'https://your-app.com',
+      assertEndpoint: 'https://your-app.com/auth/saml/acs'
+    },
+    rolesClaim: 'http://schemas.xmlsoap.org/claims/Group',
+    roleMapper: { 'Admins': 'Admin' },
+    loginPath: '/auth/saml/login',
+    acsPath: '/auth/saml/acs'
+  },
+  ROLES: { Admin: 'Admins', User: 'Users' }
+});
+
+// Setup the SAML routes (login + ACS)
+auth.setupSaml(app);
+
+// Protect routes
+app.get('/dashboard', auth.samlAuth, (req, res) => {
+  res.json({ user: req.user });
+});
+
+// Users go to /auth/saml/login to start SAML flow
 ```
 
 ## Configuration
 
-See the heavily commented `config.auth.template.js` for all options.
+See the heavily commented `config.auth.template.js` for all options and ready-to-use examples for every provider (including SAML).
 
-Key new settings for v2:
+Key settings:
 
 ```js
 {
-  AUTH_TYPE: 'NTLM' | 'EXTERNAL_JWT',
+  AUTH_TYPE: 'NTLM' | 'EXTERNAL_JWT' | 'SAML',
 
-  // One of the following provider blocks:
-  COGNITO: { region, userPoolId, clientId?, rolesClaim?, roleMapper? },
-  AZURE:   { tenantId, clientId, rolesClaim?, roleMapper? },
-  OIDC:    { issuer, clientId?, rolesClaim?, roleMapper?, jwksUri? },
+  // Modern providers
+  COGNITO: { ... },
+  AZURE:   { ... },
+  OIDC:    { ... },
+  SAML:    { identityProvider, serviceProvider, rolesClaim?, roleMapper?, loginPath?, acsPath? },
 
-  // Optional hybrid / advanced
-  useLdapForRoles: false,     // still call the LDAP module for extra roles
-  rolesClaim: 'roles',        // default claim name containing roles/groups
-  roleMapper: { ... },        // map provider role names → your ROLES keys
-
-  // Legacy NTLM/LDAP fields remain supported
+  // Optional
+  useLdapForRoles: false,
+  rolesClaim: 'roles',
+  roleMapper: { ... }
 }
 ```
 
-## API
+## API Reference
 
-### `setNTLMAuth(app)`
-Legacy NTLM protection (express-ntlm) with optional LDAP role lookup and internal JWT re-issuing.
+### Legacy / NTLM
+- `setNTLMAuth(app)`
+- `setRoles(app)`
+- `getRoles(req, res)`
+- `removeCache4(userName)`
 
-### `validateToken(app)`
-Smart middleware:
-- If external provider is configured → uses JWKS verification for Cognito/Azure/OIDC.
-- Otherwise → falls back to legacy internal JWT + LDAP behavior.
+### JWT-based (Cognito, Azure, OIDC, custom)
+- `validateToken(app)` — smart, works for legacy + external
+- `validateExternalToken(app)` — clean dedicated middleware for cloud JWTs
 
-### `validateExternalToken(app)` (new)
-Dedicated, clean middleware for pure external JWT providers. Recommended when you no longer use NTLM.
+### SAML 2.0
+- `setupSaml(app)` — registers login, ACS (assertion consumer), and logout routes based on config
+- `samlAuth` — middleware to protect routes (checks SAML session cookie or token)
 
-### `setRoles(app)` / `getRoles(req, res)` / `removeCache4(userName)`
-Legacy role attachment and cache helpers (still work).
+After successful SAML login, an internal JWT is issued and stored in an httpOnly cookie (`saml_auth_token`). The `samlAuth` middleware validates it and populates `req.user` + sets the usual `isXXX` headers.
 
-## How External JWT Validation Works
+## More Examples
 
-1. Client obtains a JWT from Cognito / Azure / your OIDC provider.
-2. Client sends it in `Authorization: Bearer <token>` or `x-access-token`.
-3. Middleware fetches the provider's JWKS, verifies signature + issuer + audience.
-4. Extracts user id and roles from configured claims.
-5. (Optional) Enriches roles via the LDAP module.
-6. Sets the usual headers (`auth-user`, `isXXX`, `is-authenticated`) so your existing code continues to work.
-7. Optionally re-issues a short-lived internal JWT.
+### Protecting an API route with external JWT (Cognito)
+
+```js
+const auth = require('@acastellon/auth')(cognitoConfig);
+
+auth.validateExternalToken(app);
+
+app.get('/api/data', (req, res) => {
+  // req.user contains { id, isAdmin: true, ... }
+  res.json({ data: 'secret', user: req.user });
+});
+```
+
+### Full SAML flow with role-based access
+
+```js
+// In your main app
+app.use(auth.samlAuth); // or per-route
+
+app.get('/admin', (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).send('Admins only');
+  res.send('Welcome admin');
+});
+```
+
+### Hybrid: External JWT + LDAP roles
+
+```js
+{
+  AUTH_TYPE: 'EXTERNAL_JWT',
+  COGNITO: { ... },
+  useLdapForRoles: true,   // still calls LDAP for additional roles
+  // ... ldap config
+}
+```
 
 ## Migrating from v1
 
 - Existing NTLM + LDAP + internal JWT code continues to work unchanged.
-- Add one of the provider blocks (`COGNITO`, `AZURE`, `OIDC`) to your config.
-- Switch to `validateExternalToken(app)` (or let `validateToken` auto-detect).
-- The module now depends on `jwks-rsa` for external providers.
+- Add provider blocks to config.
+- For JWT providers use `validateExternalToken` or `validateToken`.
+- For SAML use `setupSaml(app)` + `samlAuth` middleware.
+- New dependency `saml2-js` for SAML support.
 
 ## License
 
