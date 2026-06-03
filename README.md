@@ -1,15 +1,13 @@
 # @acastellon/auth
 
-**Modern & Legacy Authentication / Authorization middleware for Express microservices.**
+**Authentication Control System for microservices — legacy NTLM+LDAP+JWT plus AWS Cognito, Azure AD/Entra ID, OIDC, SAML 2.0, hybrids and secrets from environment variables.**
 
-**Supported authentication methods (all with role mapping + env var secrets support):**
-- **Legacy / NTLM** (on-prem Windows auth + optional LDAP)
-- **AWS Cognito** (user pools, groups as roles via JWKS)
-- **Microsoft Azure AD / Entra ID** (tenant + app registration)
-- **Generic OIDC / OAuth2** (Auth0, Okta, Keycloak, Google, etc.)
-- **SAML 2.0** (Okta, ADFS, Ping, etc. — full login/ACS flow)
-- **Hybrid** (any external provider + optional LDAP role enrichment)
-- **Secrets from environment variables** — passwords, private keys (`SAML_PRIVATE_KEY`), and `passToken` (JWT signing secret) can (and should) come from `process.env` so nothing sensitive is ever hardcoded in config files.
+It supports:
+- **Legacy**: NTLM + LDAP + internal JWT (fully backward compatible)
+- **Modern providers**: AWS Cognito, Microsoft Azure AD / Entra ID, generic OIDC / OAuth2
+- **SAML 2.0** (full login + ACS flows)
+- **Hybrid** modes (external + optional LDAP role enrichment)
+- **Secrets via environment variables** (no hard-coded passwords, private keys or JWT secrets)
 
 See the per-provider `config.auth.*.template.js` files and the examples below. Full backward compatibility with v1 NTLM+LDAP+JWT setups.
 
