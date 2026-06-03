@@ -1,7 +1,7 @@
 {
   "name": "@acastellon/auth",
   "version": "2.0.0",
-  "description": "Authorization Filtering for NodeJS Express Application (NTLM + LDAP + JWT + AWS Cognito + Azure AD/Entra ID + OIDC providers)",
+  "description": "Authorization Filtering for NodeJS Express Application (NTLM + LDAP + JWT + AWS Cognito + Azure AD/Entra ID + OIDC providers + SAML)",
   "main": "auth.js",
   "scripts": {
     "test": "node test.js"
@@ -31,6 +31,7 @@
     "express-ntlm": "^2.6.2",
     "jsonwebtoken": "^9.0.0",
     "jwks-rsa": "^3.1.0",
+    "saml2-js": "^3.0.1",
     "secure-random": "^1.1.2"
   },
   "author": "Antonio Castellon",
