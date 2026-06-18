@@ -39,5 +39,9 @@ module.exports = {
 
   // MOCKUP for local dev (when SERVER_ENVIRONMENT=local or no LDAP)
   MOCKUP_USERS: ['yourname'],
-  MOCKUP_ROLES: ['User']
+  MOCKUP_ROLES: ['User'],
+
+  // === mTLS service-to-service security (recommended replacement for old header bypasses) ===
+  // TRUSTED_MTLS_SERVICES: ['rest-service', 'graphql-service'], // optional CN allowlist from client certs
+  // When using https server with requestCert + CA, services presenting matching client certs are auto-authenticated as 'service:<CN>'
 };

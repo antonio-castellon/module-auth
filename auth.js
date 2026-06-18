@@ -57,6 +57,7 @@ const saml2 = require('saml2-js');
  * @param {object} [setup.SAML] - SAML 2.0: {identityProvider: {entryPoint, issuer, certs?}, serviceProvider: {entityID, privateKey?, certificate?, ...}, loginPath?, acsPath?, logoutPath?, rolesClaim?, roleMapper? }
  * @param {boolean} [setup.useLdapForRoles=false] - hybrid mode: after external/SAML success, also call LDAP getRoles and merge isXXX flags
  * @param {boolean} [setup.reissueInternalToken=true] - in external flows, also issue a normalized internal JWT as x-access-token
+ * @param {string[]} [setup.TRUSTED_MTLS_SERVICES] - optional allowlist of CNs (Common Names) from client certs that are trusted for mTLS service-to-service auth (e.g. ['rest', 'graphql']). If omitted or empty, any valid client cert CN is accepted.
  * @returns {{setNTLMAuth: Function, validateToken: Function, validateExternalToken: Function, setupSaml: Function, samlAuth: Function, setRoles: Function, getRoles: Function, removeCache4: Function}}
  */
 module.exports = function(setup = {}) {
@@ -155,7 +156,8 @@ module.exports = function(setup = {}) {
   model.samlAuth = samlAuth;
 
   /**
-   * Internal hostname resolution (honors CNAME env override, used for service-to-service legacy bypass).
+   * Internal hostname resolution (honors CNAME env override). Used in error messages / legacy paths.
+   * The old service-bypass relying on it + auth-user header has been removed.
    * @private
    * @returns {string}
    */
@@ -225,7 +227,7 @@ module.exports = function(setup = {}) {
    * via CERTIFICATION_PATH + requestCert in consuming modules like rest/graphql),
    * we trust the certificate's Common Name as the calling service identity.
    *
-   * This replaces the previous insecure 'service-brother' + spoofable Host/auth-user
+   * This replaces the previous insecure 'service-brother' + Host/auth-user
    * header bypass (which allowed trivial authentication bypass by any HTTP client).
    *
    * Recommended deployment for service mesh:
@@ -249,6 +251,10 @@ module.exports = function(setup = {}) {
         const cert = sock.getPeerCertificate();
         const cn = (cert && cert.subject && (cert.subject.CN || cert.subject.commonName)) || null;
         if (cn) {
+          const trusted = setup.TRUSTED_MTLS_SERVICES;
+          if (Array.isArray(trusted) && trusted.length > 0 && !trusted.includes(cn)) {
+            return false; // CN not in allowlist
+          }
           const serviceId = 'service:' + cn;
           req.user = { id: serviceId, service: cn };
           res.setHeader('auth-user', serviceId);

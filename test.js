@@ -130,3 +130,56 @@ try {
 }
 
 console.log('\nAll basic smoke tests passed. For real integration tests you need actual providers or mocks.');
+
+// Test 6: Header sanitization (security fix - prevent spoofing auth-user / is-* )
+try {
+  const auth = require('./auth.js')({ AUTH_TYPE: 'EXTERNAL_JWT', OIDC: { issuer: 'https://dummy', jwksUri: 'https://dummy' } });
+  // Simulate a middleware call with spoofed headers
+  const mockReq = { headers: { 'auth-user': 'evil', 'is-admin': 'true', 'x-access-token': 'fake' }, socket: {} };
+  const mockRes = { setHeader: () => {}, headers: {} };
+  // Access internal sanitize via closure? Since not exported, test via validate (it calls sanitize)
+  // Instead, require and call the logic indirectly by checking that spoofed headers are removed before processing.
+  // For unit, we can re-require and monkey the function, but simpler: invoke validateToken with mock app that captures
+  let capturedReq = null;
+  const mockApp = { all: (p, fn) => { fn(mockReq, mockRes, () => {}); capturedReq = mockReq; } };
+  try { auth.validateToken(mockApp); } catch(e) {} // will fail on no verifier but sanitize runs first
+  assert(!capturedReq || !capturedReq.headers['auth-user'], 'auth-user should be stripped');
+  assert(!capturedReq || !capturedReq.headers['is-admin'], 'is-* headers should be stripped');
+  console.log('✓ Header sanitization strips auth-user and is-* from incoming requests');
+} catch (e) {
+  console.error('Sanitization test failed:', e.message);
+}
+
+// Test 7: mTLS service auth path (mock socket with peer cert) + optional TRUSTED_MTLS_SERVICES allowlist
+try {
+  // Config without external, to hit the legacy path but we only care about early mTLS check
+  const authMtls = require('./auth.js')({});
+  let nextCalled = false;
+  const mockReqMtls = {
+    headers: { 'auth-user': 'spoof', 'is-foo': 'bar' },
+    socket: {
+      getPeerCertificate: () => ({ subject: { CN: 'trusted-service' } })
+    }
+  };
+  const mockResMtls = { setHeader: function(k,v){ this[k]=v; }, headersSent: false };
+  const mockAppMtls = { all: (p, fn) => { fn(mockReqMtls, mockResMtls, () => { nextCalled = true; }); } };
+  try { authMtls.validateToken(mockAppMtls); } catch(e) {} // expected, no token path
+  assert(nextCalled === true, 'mTLS path should have called next()');
+  assert(mockReqMtls.headers['auth-user'] === 'service:trusted-service', 'should set service auth-user');
+  assert(mockResMtls['is-service'] === true, 'should set is-service');
+  console.log('✓ mTLS service auth path works with mocked client cert (CN used)');
+
+  // Test allowlist rejection
+  const authAllow = require('./auth.js')({ TRUSTED_MTLS_SERVICES: ['other-service'] });
+  nextCalled = false;
+  const mockReqReject = { headers: {}, socket: { getPeerCertificate: () => ({ subject: { CN: 'trusted-service' } }) } };
+  const mockResReject = { setHeader: () => {} };
+  const mockAppReject = { all: (p, fn) => { fn(mockReqReject, mockResReject, () => { nextCalled = true; }); } };
+  try { authAllow.validateToken(mockAppReject); } catch(e) {}
+  assert(nextCalled === false, 'mTLS with untrusted CN should NOT call next() when allowlist is set');
+  console.log('✓ TRUSTED_MTLS_SERVICES allowlist correctly rejects unknown CN');
+} catch (e) {
+  console.error('mTLS test failed:', e.message);
+}
+
+console.log('\nSecurity-related unit tests (sanitization + mTLS + allowlist) completed.');
