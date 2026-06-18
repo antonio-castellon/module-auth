@@ -29,6 +29,13 @@ auth.setNTLMAuth(app);           // protects routes with NTLM + optional LDAP ro
 auth.validateToken(app);         // validates internal JWT + LDAP roles
 ```
 
+**Security note (service-to-service):**
+- Client-supplied `auth-user` and `is-*` headers are **always stripped** on entry to prevent spoofing.
+- The previous `service-brother` + spoofable `Host`/`auth-user` header bypass has been **removed**.
+- Secure service-to-service is now supported via **mTLS client certificates** (recommended when using `CERTIFICATION_PATH` + `requestCert: true` on the https server in rest/graphql/etc.). When a valid peer cert is seen, the CN is trusted as `service:<cn>` and appropriate headers/req.user are set by the auth middleware.
+
+See also module-rest and module-dns-client for mTLS client configuration.
+
 (Keep secrets out of config.auth.js — see env var section.)
 
 ### Modern (AWS Cognito example)

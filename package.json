@@ -1,6 +1,6 @@
 {
   "name": "@acastellon/auth",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Authorization Filtering for NodeJS Express Application (NTLM + LDAP + JWT + AWS Cognito + Azure AD/Entra ID + OIDC providers + SAML + env var secrets)",
   "main": "auth.js",
   "scripts": {

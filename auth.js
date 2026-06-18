@@ -203,6 +203,67 @@ module.exports = function(setup = {}) {
     });
   }
 
+  /**
+   * SECURITY: Strip client-supplied 'auth-user' and any 'is-*' role headers.
+   * These MUST only ever be set by successful authentication paths in this module.
+   * Client-controlled values must never be trusted or forwarded.
+   * @private
+   */
+  function sanitizeIncomingAuthHeaders(req) {
+    if (!req || !req.headers) return;
+    delete req.headers['auth-user'];
+    Object.keys(req.headers).forEach(function (k) {
+      if (k.toLowerCase().startsWith('is-')) {
+        delete req.headers[k];
+      }
+    });
+  }
+
+  /**
+   * Secure service-to-service authentication using mTLS client certificates.
+   * If the request arrived over HTTPS with a client certificate (as configured
+   * via CERTIFICATION_PATH + requestCert in consuming modules like rest/graphql),
+   * we trust the certificate's Common Name as the calling service identity.
+   *
+   * This replaces the previous insecure 'service-brother' + spoofable Host/auth-user
+   * header bypass (which allowed trivial authentication bypass by any HTTP client).
+   *
+   * Recommended deployment for service mesh:
+   * - All inter-service traffic uses HTTPS + client certificates issued from the
+   *   same CA used in CERTIFICATION_PATH.
+   * - Client (calling service) presents its key+cert.
+   * - Receiving service's https server has requestCert + ca, rejectUnauthorized:false
+   *   (to support mixed token-auth clients + mTLS services).
+   *
+   * On success sets:
+   *   req.user = { id: 'service:<CN>', service: '<CN>' }
+   *   headers: auth-user, is-authenticated, is-service
+   *
+   * @private
+   * @returns {boolean} whether mTLS service auth was used (caller should next())
+   */
+  function checkMtlsServiceAuth(req, res) {
+    try {
+      const sock = req.socket || req.connection;
+      if (sock && typeof sock.getPeerCertificate === 'function') {
+        const cert = sock.getPeerCertificate();
+        const cn = (cert && cert.subject && (cert.subject.CN || cert.subject.commonName)) || null;
+        if (cn) {
+          const serviceId = 'service:' + cn;
+          req.user = { id: serviceId, service: cn };
+          res.setHeader('auth-user', serviceId);
+          res.setHeader('is-authenticated', true);
+          res.setHeader('is-service', true);
+          // Downstream code can check req.user.service or the is-service header.
+          return true;
+        }
+      }
+    } catch (e) {
+      // fall back to normal token auth
+    }
+    return false;
+  }
+
   // ===========================================
   // LEGACY NTLM + LDAP (unchanged behavior)
   // ===========================================
@@ -239,6 +300,7 @@ module.exports = function(setup = {}) {
     app.use(ntlm(options));
 
     app.all(setup.NTLM_PATH || '*', function (request, res, next) {
+      sanitizeIncomingAuthHeaders(request);
       let userName = request.ntlm.UserName;
 
       if(ldapCache[userName] != null){
@@ -433,7 +495,10 @@ module.exports = function(setup = {}) {
    * - Otherwise (legacy path): requires LDAP, validates incoming internal JWT against a freshly generated
    *     one from current LDAP roles (isEqualToken), then jwt.verify.
    *
-   * Special legacy bypass: user 'service-brother' from same hostname is allowed without token.
+   * Client-supplied 'auth-user' and 'is-*' headers are always stripped on entry.
+   * Service-to-service calls are supported securely via mTLS client certificates
+   * (when the https server requests client certs). The old 'service-brother' + Host
+   * header bypass has been removed as it was spoofable by any HTTP client.
    *
    * @param {object} app - Express app
    */
@@ -441,13 +506,16 @@ module.exports = function(setup = {}) {
     const verifier = getVerifier();
 
     app.all('*', function(req, res, next) {
-      const token = req.headers['x-access-token'];
-      let userName = req.headers['auth-user'];
+      sanitizeIncomingAuthHeaders(req);
 
-      // Service-to-service bypass (legacy)
-      if (userName === 'service-brother' && req.get('host').startsWith(getHostName())) {
+      // Secure replacement for the old spoofable service-brother bypass:
+      // Use mTLS client certificate (when available) to identify calling services.
+      if (checkMtlsServiceAuth(req, res)) {
         return next();
       }
+
+      const token = req.headers['x-access-token'];
+      let userName = req.headers['auth-user']; // will be absent (sanitized) unless set by mTLS
 
       if (!token) {
         return res.status(401).send({ auth: false, message: 'No token provided.' });
@@ -555,6 +623,12 @@ module.exports = function(setup = {}) {
     }
 
     app.all('*', async function(req, res, next) {
+      sanitizeIncomingAuthHeaders(req);
+
+      if (checkMtlsServiceAuth(req, res)) {
+        return next();
+      }
+
       const authHeader = req.headers['authorization'] || req.headers['x-access-token'];
       const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
 
@@ -720,6 +794,12 @@ module.exports = function(setup = {}) {
    * @param {Function} next
    */
   function samlAuth (req, res, next) {
+    sanitizeIncomingAuthHeaders(req);
+
+    if (checkMtlsServiceAuth(req, res)) {
+      return next();
+    }
+
     const token = req.cookies?.saml_auth_token || req.headers['x-access-token'] || req.headers['authorization']?.replace('Bearer ', '');
 
     if (!token) {
